@@ -1,27 +1,42 @@
 package dev.mud.cinematiccontainers;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import dev.dyslexic.cinematic.api.AddonStations;
 import java.lang.reflect.Field;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
+import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.core.Direction;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ChestMenu;
+import net.minecraft.world.inventory.DispenserMenu;
+import net.minecraft.world.inventory.HopperMenu;
 import net.minecraft.world.inventory.ShulkerBoxMenu;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
-import java.util.function.Function;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Lista dos containers que ganham a cena cinematografica e o registro deles no Cinematic.
  *
  * A API oficial de addons do Cinematic recusa blocos do "minecraft:" (ela foi feita para
  * blocos de outros mods). Por isso colocamos as definicoes direto nos mapas internos dela.
+ *
+ * Tipos: chest, barrel, shulker, hopper, dispenser (dispenser vale tambem para dropper).
  */
 public final class ContainerDefs {
     public static final String MOD_ID = "cinematic_containers";
+    private static final Logger LOG = LoggerFactory.getLogger(MOD_ID);
 
     private static final List<Direction> SIDES =
             List.of(Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST);
@@ -31,7 +46,15 @@ public final class ContainerDefs {
         "light_gray", "cyan", "purple", "blue", "brown", "green", "red", "black"
     };
 
+    private static final String DEFAULT_CONFIG = """
+            {
+              "_help": "Para blocos de OUTROS mods que abrem um inventario igual ao de um bau, barril, shulker, funil ou dispenser. Exemplo: { \\"block\\": \\"outromod:bau_de_ouro\\", \\"type\\": \\"chest\\" }. Tipos: chest, barrel, shulker, hopper, dispenser. Reinicie o jogo depois de mudar. So funciona se o bloco usar o menu padrao do tipo escolhido.",
+              "extra_containers": []
+            }
+            """;
+
     private static final List<AddonStations.Definition> ALL = new ArrayList<>();
+    private static final Map<Identifier, String> TYPES = new HashMap<>();
 
     private ContainerDefs() {
     }
@@ -40,15 +63,29 @@ public final class ContainerDefs {
         return ALL;
     }
 
-    private static void add(String blockPath, Class<? extends AbstractContainerMenu> menu) {
-        add(blockPath, menu, state -> SIDES);
+    public static String typeOf(Identifier definitionId) {
+        return TYPES.getOrDefault(definitionId, "chest");
     }
 
-    private static void add(String blockPath, Class<? extends AbstractContainerMenu> menu,
-                            Function<BlockState, List<Direction>> sides) {
-        Identifier block = Identifier.withDefaultNamespace(blockPath);
-        Identifier id = Identifier.fromNamespaceAndPath(MOD_ID, blockPath);
-        ALL.add(new AddonStations.Definition(id, block, menu, sides));
+    private static Class<? extends AbstractContainerMenu> menuFor(String type) {
+        return switch (type) {
+            case "shulker" -> ShulkerBoxMenu.class;
+            case "hopper" -> HopperMenu.class;
+            case "dispenser" -> DispenserMenu.class;
+            default -> ChestMenu.class;
+        };
+    }
+
+    private static void add(Identifier block, String type, String idPath) {
+        Identifier id = Identifier.fromNamespaceAndPath(MOD_ID, idPath);
+        Function<BlockState, List<Direction>> sides =
+                type.equals("barrel") ? ContainerDefs::barrelSides : state -> SIDES;
+        ALL.add(new AddonStations.Definition(id, block, menuFor(type), sides));
+        TYPES.put(id, type);
+    }
+
+    private static void addVanilla(String blockPath, String type) {
+        add(Identifier.withDefaultNamespace(blockPath), type, blockPath);
     }
 
     /** Barril virado de lado: so da pra mexer pela face aberta (a que ele esta olhando). */
@@ -67,20 +104,52 @@ public final class ContainerDefs {
         if (!ALL.isEmpty()) {
             return;
         }
-        add("chest", ChestMenu.class);
-        add("trapped_chest", ChestMenu.class);
-        add("barrel", ChestMenu.class, ContainerDefs::barrelSides);
-        add("ender_chest", ChestMenu.class);
+        addVanilla("chest", "chest");
+        addVanilla("trapped_chest", "chest");
+        addVanilla("ender_chest", "chest");
         for (String prefix : new String[] {"", "exposed_", "weathered_", "oxidized_"}) {
-            add(prefix + "copper_chest", ChestMenu.class);
-            add("waxed_" + prefix + "copper_chest", ChestMenu.class);
+            addVanilla(prefix + "copper_chest", "chest");
+            addVanilla("waxed_" + prefix + "copper_chest", "chest");
         }
-        add("shulker_box", ShulkerBoxMenu.class);
+        addVanilla("barrel", "barrel");
+        addVanilla("shulker_box", "shulker");
         for (String color : COLORS) {
-            add(color + "_shulker_box", ShulkerBoxMenu.class);
+            addVanilla(color + "_shulker_box", "shulker");
         }
+        addVanilla("hopper", "hopper");
+        addVanilla("dispenser", "dispenser");
+        addVanilla("dropper", "dispenser");
+        loadExtras();
         for (AddonStations.Definition def : ALL) {
             force(def);
+        }
+    }
+
+    private static void loadExtras() {
+        Path file = FabricLoader.getInstance().getConfigDir().resolve("cinematic_containers.json");
+        try {
+            if (!Files.exists(file)) {
+                Files.writeString(file, DEFAULT_CONFIG);
+                return;
+            }
+            JsonObject root = JsonParser.parseString(Files.readString(file)).getAsJsonObject();
+            JsonArray extras = root.getAsJsonArray("extra_containers");
+            if (extras == null) {
+                return;
+            }
+            for (JsonElement element : extras) {
+                JsonObject entry = element.getAsJsonObject();
+                Identifier block = Identifier.tryParse(entry.get("block").getAsString());
+                String type = entry.has("type") ? entry.get("type").getAsString() : "chest";
+                if (block == null) {
+                    LOG.warn("Bloco invalido no cinematic_containers.json: {}", entry);
+                    continue;
+                }
+                add(block, type, "extra/" + block.getNamespace() + "/" + block.getPath());
+                LOG.info("Container extra registrado: {} ({})", block, type);
+            }
+        } catch (Exception e) {
+            LOG.warn("Nao consegui ler config/cinematic_containers.json; ignorando os extras.", e);
         }
     }
 

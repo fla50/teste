@@ -12,10 +12,12 @@ import dev.dyslexic.cinematic.client.SceneBuffers;
 import java.util.List;
 import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.sounds.SoundEvent;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
@@ -32,7 +34,6 @@ import net.minecraft.world.phys.Vec3;
  * sobre o container e os itens aparecem flutuando em grade logo acima dele.
  */
 public final class ContainerStation extends AddonMenuStation<AbstractContainerMenu> {
-    private static final int COLUMNS = 9;
     private static final int PLAYER_SLOTS = 36;
 
     /**
@@ -42,12 +43,16 @@ public final class ContainerStation extends AddonMenuStation<AbstractContainerMe
      * shulker: no VAO entre a base e a tampa levantada, com os itens em pe e camera baixa.
      */
     private enum Style {
-        //            itemY  spacing eyeSide eyeUp  hoverLift hoverScale tilt rowRise
-        CHEST(0.70, 0.092, 0.75, 1.75, 0.12, 1.9, 0.0f, 0.0),
-        BARREL(1.06, 0.095, 0.75, 1.75, 0.12, 1.9, 0.0f, 0.0),
+        //            itemY  spacing eyeSide eyeUp  hoverLift hoverScale tilt   rowRise cols
+        CHEST(0.70, 0.092, 0.75, 1.75, 0.12, 1.9, 0.0f, 0.0, 9),
+        BARREL(1.06, 0.095, 0.75, 1.75, 0.12, 1.9, 0.0f, 0.0, 9),
         // barril virado de lado: grade em pe sobre a face aberta, camera de frente
-        BARREL_SIDE(0.50, 0.095, 1.00, 0.85, 0.06, 1.5, 90.0f, 0.0),
-        SHULKER(0.57, 0.100, 1.15, 0.72, 0.03, 1.3, 90.0f, 0.03);
+        BARREL_SIDE(0.50, 0.095, 1.00, 0.85, 0.06, 1.5, 90.0f, 0.0, 9),
+        SHULKER(0.57, 0.100, 1.15, 0.72, 0.03, 1.3, 90.0f, 0.03, 9),
+        // funil: 5 itens numa fileira, dentro da tigela
+        HOPPER(0.72, 0.110, 0.75, 1.75, 0.12, 1.9, 0.0f, 0.0, 5),
+        // dispenser/dropper: 3x3 flutuando sobre o topo
+        DISPENSER(1.12, 0.150, 0.75, 1.75, 0.10, 1.5, 0.0f, 0.0, 3);
 
         final double itemY;
         final double spacing;
@@ -57,9 +62,10 @@ public final class ContainerStation extends AddonMenuStation<AbstractContainerMe
         final double hoverScale;
         final float tilt;
         final double rowRise;
+        final int columns;
 
         Style(double itemY, double spacing, double eyeSide, double eyeUp, double hoverLift,
-              double hoverScale, float tilt, double rowRise) {
+              double hoverScale, float tilt, double rowRise, int columns) {
             this.itemY = itemY;
             this.spacing = spacing;
             this.eyeSide = eyeSide;
@@ -68,21 +74,26 @@ public final class ContainerStation extends AddonMenuStation<AbstractContainerMe
             this.hoverScale = hoverScale;
             this.tilt = tilt;
             this.rowRise = rowRise;
+            this.columns = columns;
         }
 
-        static Style of(BlockState state) {
-            String path = BuiltInRegistries.BLOCK.getKey(state.getBlock()).getPath();
-            if (path.contains("shulker")) {
-                return SHULKER;
+        static Style of(String type, BlockState state) {
+            switch (type) {
+                case "shulker":
+                    return SHULKER;
+                case "hopper":
+                    return HOPPER;
+                case "dispenser":
+                    return DISPENSER;
+                case "barrel":
+                    if (state.hasProperty(BlockStateProperties.FACING)
+                            && state.getValue(BlockStateProperties.FACING).getAxis().isHorizontal()) {
+                        return BARREL_SIDE;
+                    }
+                    return BARREL;
+                default:
+                    return CHEST;
             }
-            if (path.equals("barrel")) {
-                if (state.hasProperty(BlockStateProperties.FACING)
-                        && state.getValue(BlockStateProperties.FACING).getAxis().isHorizontal()) {
-                    return BARREL_SIDE;
-                }
-                return BARREL;
-            }
-            return CHEST;
         }
     }
 
@@ -94,7 +105,7 @@ public final class ContainerStation extends AddonMenuStation<AbstractContainerMe
 
     @SuppressWarnings("unchecked")
     public ContainerStation(BlockPos pos, BlockState state, Direction side,
-                            Class<? extends AbstractContainerMenu> menuClass) {
+                            Class<? extends AbstractContainerMenu> menuClass, String type) {
         super(pos, side, (Class<AbstractContainerMenu>) menuClass, 0);
         double x = pos.getX() + 0.5;
         double z = pos.getZ() + 0.5;
@@ -106,7 +117,7 @@ public final class ContainerStation extends AddonMenuStation<AbstractContainerMe
             dbl = true;
         }
         this.anchor = new Vec3(x, pos.getY(), z);
-        this.style = Style.of(state);
+        this.style = Style.of(type, state);
         this.doubleChest = dbl;
     }
 
@@ -118,21 +129,22 @@ public final class ContainerStation extends AddonMenuStation<AbstractContainerMe
     }
 
     private Vec3 slotPoint(int index, int total) {
-        int rows = Math.max(1, (total + COLUMNS - 1) / COLUMNS);
-        int col = index % COLUMNS;
-        int row = index / COLUMNS;
+        int cols = this.style.columns;
+        int rows = Math.max(1, (total + cols - 1) / cols);
+        int col = index % cols;
+        int row = index / cols;
         double sp = this.style.spacing;
         if (this.style == Style.BARREL_SIDE) {
             // grade vertical na face aberta, um pouco para fora; fileira 0 em cima
             return this.anchor
                     .add(0.0, this.style.itemY, 0.0)
-                    .add(this.right().scale((col - (COLUMNS - 1) / 2.0) * sp))
+                    .add(this.right().scale((col - (cols - 1) / 2.0) * sp))
                     .add(0.0, ((rows - 1) / 2.0 - row) * sp, 0.0)
                     .add(this.side().scale(0.56));
         }
         return this.anchor
                 .add(0.0, this.style.itemY, 0.0)
-                .add(this.right().scale((col - (COLUMNS - 1) / 2.0) * sp))
+                .add(this.right().scale((col - (cols - 1) / 2.0) * sp))
                 .add(this.side().scale((row - (rows - 1) / 2.0) * sp))
                 .add(0.0, (rows - 1 - row) * this.style.rowRise, 0.0);
     }
@@ -265,17 +277,99 @@ public final class ContainerStation extends AddonMenuStation<AbstractContainerMe
         return hand.add(reach.scale(0.07)).add(0.0, -0.05, 0.0);
     }
 
-    @Override
-    protected void act(int button, boolean shift) {
-        if (this.hoverSlot < 0) {
-            return;
-        }
-        this.slotClick(this.hoverSlot, button, shift);
+    private void playSound(SoundEvent sound, float volume, float pitch) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.level != null) {
-            Vec3 at = this.anchor;
-            mc.level.playLocalSound(at.x, at.y, at.z, SoundEvents.ITEM_PICKUP,
-                    SoundSource.PLAYERS, 0.35f, 1.1f, false);
+            Vec3 at = this.anchor.add(0.0, 0.8, 0.0);
+            mc.level.playLocalSound(at.x, at.y, at.z, sound, SoundSource.PLAYERS, volume, pitch, false);
+        }
+    }
+
+    /** Shift + botao direito: passa tudo do container para a mochila. */
+    private void takeAll() {
+        AbstractContainerMenu menu = this.menu();
+        if (menu == null) {
+            return;
+        }
+        boolean any = false;
+        int total = containerSlots();
+        for (int i = 0; i < total; i++) {
+            if (!this.slot(i).isEmpty()) {
+                this.slotClick(i, 0, true);
+                any = true;
+            }
+        }
+        if (any) {
+            this.playSound(SoundEvents.BUNDLE_DROP_CONTENTS, 0.7f, 1.0f);
+        }
+    }
+
+    @Override
+    protected void act(int button, boolean shift) {
+        if (shift && button == 1) {
+            this.takeAll();
+            return;
+        }
+        AbstractContainerMenu menu = this.menu();
+        if (this.hoverSlot < 0 || menu == null) {
+            return;
+        }
+        boolean carrying = !menu.getCarried().isEmpty();
+        boolean emptySlot = this.slot(this.hoverSlot).isEmpty();
+        this.slotClick(this.hoverSlot, button, shift);
+        if (shift) {
+            this.playSound(SoundEvents.BUNDLE_REMOVE_ONE, 0.6f, 1.15f);
+        } else if (carrying && emptySlot) {
+            this.playSound(SoundEvents.BUNDLE_INSERT, 0.6f, 1.0f);
+        } else if (carrying) {
+            this.playSound(SoundEvents.BUNDLE_INSERT, 0.5f, 1.2f);
+        } else {
+            this.playSound(SoundEvents.BUNDLE_REMOVE_ONE, 0.6f, 0.95f);
+        }
+    }
+
+    // ---------- texto na tela ----------
+
+    /** Quantidade de cada pilha (x2, x32...) e, no item sob o cursor, o nome. */
+    @Override
+    public void renderScreen(GuiGraphicsExtractor g, Font font, float alpha) {
+        AbstractContainerMenu menu = this.menu();
+        if (menu == null || this.outro()) {
+            return;
+        }
+        int a = (int) (Math.max(0.0f, Math.min(1.0f, alpha)) * 255.0f);
+        if (a < 12) {
+            return;
+        }
+        int color = (a << 24) | 0xFFFFFF;
+        int total = containerSlots();
+        for (int i = 0; i < total; i++) {
+            ItemStack stack = this.slot(i);
+            if (stack.isEmpty()) {
+                continue;
+            }
+            boolean hover = i == this.hoverSlot;
+            if (stack.getCount() <= 1 && !hover) {
+                continue;
+            }
+            Vec3 p = this.slotPoint(i, total);
+            if (hover) {
+                p = this.style == Style.BARREL_SIDE
+                        ? p.add(this.side().scale(this.style.hoverLift))
+                        : p.add(0.0, this.style.hoverLift, 0.0);
+            }
+            double[] at = Picking.toGui(p);
+            if (at == null) {
+                continue;
+            }
+            int x = (int) at[0];
+            int y = (int) at[1];
+            if (stack.getCount() > 1) {
+                g.text(font, "x" + stack.getCount(), x + 4, y + 2, color, true);
+            }
+            if (hover) {
+                g.centeredText(font, stack.getHoverName(), x, y - 20, color);
+            }
         }
     }
 

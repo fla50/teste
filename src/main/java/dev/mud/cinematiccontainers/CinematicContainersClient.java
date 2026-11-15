@@ -11,7 +11,8 @@ public final class CinematicContainersClient implements ClientModInitializer {
         ContainerDefs.registerAll();
         for (AddonStations.Definition def : ContainerDefs.all()) {
             AddonScenes.register(def.id(),
-                    (pos, state, player, side) -> new ContainerStation(pos, state, side, def.menuClass()));
+                    (pos, state, player, side) -> new ContainerStation(
+                            pos, state, side, def.menuClass(), ContainerDefs.typeOf(def.id())));
         }
     }
 }
