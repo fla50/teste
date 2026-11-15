@@ -24,6 +24,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.state.properties.ChestType;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.phys.Vec3;
 
 /**
@@ -44,6 +45,8 @@ public final class ContainerStation extends AddonMenuStation<AbstractContainerMe
         //            itemY  spacing eyeSide eyeUp  hoverLift hoverScale tilt rowRise
         CHEST(0.70, 0.092, 0.75, 1.75, 0.12, 1.9, 0.0f, 0.0),
         BARREL(1.06, 0.095, 0.75, 1.75, 0.12, 1.9, 0.0f, 0.0),
+        // barril virado de lado: grade em pe sobre a face aberta, camera de frente
+        BARREL_SIDE(0.50, 0.095, 1.00, 0.85, 0.06, 1.5, 90.0f, 0.0),
         SHULKER(0.57, 0.100, 1.15, 0.72, 0.03, 1.3, 90.0f, 0.03);
 
         final double itemY;
@@ -73,6 +76,10 @@ public final class ContainerStation extends AddonMenuStation<AbstractContainerMe
                 return SHULKER;
             }
             if (path.equals("barrel")) {
+                if (state.hasProperty(BlockStateProperties.FACING)
+                        && state.getValue(BlockStateProperties.FACING).getAxis().isHorizontal()) {
+                    return BARREL_SIDE;
+                }
                 return BARREL;
             }
             return CHEST;
@@ -115,6 +122,14 @@ public final class ContainerStation extends AddonMenuStation<AbstractContainerMe
         int col = index % COLUMNS;
         int row = index / COLUMNS;
         double sp = this.style.spacing;
+        if (this.style == Style.BARREL_SIDE) {
+            // grade vertical na face aberta, um pouco para fora; fileira 0 em cima
+            return this.anchor
+                    .add(0.0, this.style.itemY, 0.0)
+                    .add(this.right().scale((col - (COLUMNS - 1) / 2.0) * sp))
+                    .add(0.0, ((rows - 1) / 2.0 - row) * sp, 0.0)
+                    .add(this.side().scale(0.56));
+        }
         return this.anchor
                 .add(0.0, this.style.itemY, 0.0)
                 .add(this.right().scale((col - (COLUMNS - 1) / 2.0) * sp))
@@ -284,7 +299,9 @@ public final class ContainerStation extends AddonMenuStation<AbstractContainerMe
             double k = Anim.outCubic(Anim.window(Scene.time, 0.15 + i * 0.012, 0.6 + i * 0.012));
             boolean hover = i == this.hoverSlot;
             Vec3 at = Anim.lerp(origin, this.slotPoint(i, total), k)
-                    .add(0.0, hover ? this.style.hoverLift : 0.0, 0.0);
+                    .add(this.style == Style.BARREL_SIDE
+                            ? this.side().scale(hover ? this.style.hoverLift : 0.0)
+                            : new Vec3(0.0, hover ? this.style.hoverLift : 0.0, 0.0));
             double base = ItemPlacer.isBlock(stack) ? sp * 0.62 : sp * 0.95;
             float size = (float) (base * (0.4 + 0.6 * k) * (hover ? this.style.hoverScale : 1.0));
             org.joml.Quaternionf rotation = this.style.tilt > 0.0f
@@ -296,7 +313,7 @@ public final class ContainerStation extends AddonMenuStation<AbstractContainerMe
 
     @Override
     public void renderWorld(PoseStack pose, SceneBuffers buffers, Vec3 camera, int light) {
-        if (this.hoverSlot >= 0 && this.aim != null) {
+        if (this.hoverSlot >= 0 && this.aim != null && this.style != Style.BARREL_SIDE) {
             float p = (float) (0.18 + 0.06 * Math.sin(Scene.clock() * 5.0));
             EnchantFx.disc(pose, buffers, camera, this.aim.add(0.0, -0.01, 0.0), this.style.spacing * 0.6, 0.0,
                     EnchantFx.GLOW, p, p * 0.8f, p * 0.55f);

@@ -10,6 +10,9 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ChestMenu;
 import net.minecraft.world.inventory.ShulkerBoxMenu;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import java.util.function.Function;
 
 /**
  * Lista dos containers que ganham a cena cinematografica e o registro deles no Cinematic.
@@ -38,9 +41,25 @@ public final class ContainerDefs {
     }
 
     private static void add(String blockPath, Class<? extends AbstractContainerMenu> menu) {
+        add(blockPath, menu, state -> SIDES);
+    }
+
+    private static void add(String blockPath, Class<? extends AbstractContainerMenu> menu,
+                            Function<BlockState, List<Direction>> sides) {
         Identifier block = Identifier.withDefaultNamespace(blockPath);
         Identifier id = Identifier.fromNamespaceAndPath(MOD_ID, blockPath);
-        ALL.add(new AddonStations.Definition(id, block, menu, state -> SIDES));
+        ALL.add(new AddonStations.Definition(id, block, menu, sides));
+    }
+
+    /** Barril virado de lado: so da pra mexer pela face aberta (a que ele esta olhando). */
+    private static List<Direction> barrelSides(BlockState state) {
+        if (state.hasProperty(BlockStateProperties.FACING)) {
+            Direction facing = state.getValue(BlockStateProperties.FACING);
+            if (facing.getAxis().isHorizontal()) {
+                return List.of(facing);
+            }
+        }
+        return SIDES;
     }
 
     /** Roda nos dois lados (cliente e servidor). */
@@ -50,7 +69,7 @@ public final class ContainerDefs {
         }
         add("chest", ChestMenu.class);
         add("trapped_chest", ChestMenu.class);
-        add("barrel", ChestMenu.class);
+        add("barrel", ChestMenu.class, ContainerDefs::barrelSides);
         add("ender_chest", ChestMenu.class);
         for (String prefix : new String[] {"", "exposed_", "weathered_", "oxidized_"}) {
             add(prefix + "copper_chest", ChestMenu.class);
