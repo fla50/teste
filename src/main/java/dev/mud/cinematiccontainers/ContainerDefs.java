@@ -52,6 +52,10 @@ public final class ContainerDefs {
         add("trapped_chest", ChestMenu.class);
         add("barrel", ChestMenu.class);
         add("ender_chest", ChestMenu.class);
+        for (String prefix : new String[] {"", "exposed_", "weathered_", "oxidized_"}) {
+            add(prefix + "copper_chest", ChestMenu.class);
+            add("waxed_" + prefix + "copper_chest", ChestMenu.class);
+        }
         add("shulker_box", ShulkerBoxMenu.class);
         for (String color : COLORS) {
             add(color + "_shulker_box", ShulkerBoxMenu.class);

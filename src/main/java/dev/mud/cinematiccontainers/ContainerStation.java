@@ -15,6 +15,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
@@ -31,11 +32,51 @@ import net.minecraft.world.phys.Vec3;
  */
 public final class ContainerStation extends AddonMenuStation<AbstractContainerMenu> {
     private static final int COLUMNS = 9;
-    private static final double SPACING = 0.15;
-    private static final double FLOAT_HEIGHT = 0.30;
     private static final int PLAYER_SLOTS = 36;
 
+    /**
+     * Cada tipo de container mostra os itens num lugar diferente:
+     * bau/Ender: DENTRO do bau, no fundo (camera bem por cima, olhando pra baixo);
+     * barril: logo acima da boca do barril;
+     * shulker: acima da tampa dela (a tampa sobe e gira, entao nao da pra ficar dentro).
+     */
+    private enum Style {
+        //            itemY  spacing eyeSide eyeUp  hoverLift hoverScale
+        CHEST(0.14, 0.095, 0.55, 2.00, 0.12, 1.9),
+        BARREL(1.15, 0.100, 0.75, 2.20, 0.06, 1.5),
+        SHULKER(1.75, 0.100, 0.75, 2.70, 0.06, 1.5);
+
+        final double itemY;
+        final double spacing;
+        final double eyeSide;
+        final double eyeUp;
+        final double hoverLift;
+        final double hoverScale;
+
+        Style(double itemY, double spacing, double eyeSide, double eyeUp, double hoverLift, double hoverScale) {
+            this.itemY = itemY;
+            this.spacing = spacing;
+            this.eyeSide = eyeSide;
+            this.eyeUp = eyeUp;
+            this.hoverLift = hoverLift;
+            this.hoverScale = hoverScale;
+        }
+
+        static Style of(BlockState state) {
+            String path = BuiltInRegistries.BLOCK.getKey(state.getBlock()).getPath();
+            if (path.contains("shulker")) {
+                return SHULKER;
+            }
+            if (path.equals("barrel")) {
+                return BARREL;
+            }
+            return CHEST;
+        }
+    }
+
+    /** Centro do container, na altura do chao do bloco. */
     private final Vec3 anchor;
+    private final Style style;
     private final boolean doubleChest;
     private int hoverSlot = -1;
 
@@ -52,7 +93,8 @@ public final class ContainerStation extends AddonMenuStation<AbstractContainerMe
             z = (z + other.getZ() + 0.5) / 2.0;
             dbl = true;
         }
-        this.anchor = new Vec3(x, pos.getY() + 1.0, z);
+        this.anchor = new Vec3(x, pos.getY(), z);
+        this.style = Style.of(state);
         this.doubleChest = dbl;
     }
 
@@ -67,15 +109,17 @@ public final class ContainerStation extends AddonMenuStation<AbstractContainerMe
         int rows = Math.max(1, (total + COLUMNS - 1) / COLUMNS);
         int col = index % COLUMNS;
         int row = index / COLUMNS;
+        double sp = this.style.spacing;
         return this.anchor
-                .add(0.0, FLOAT_HEIGHT, 0.0)
-                .add(this.right().scale((col - (COLUMNS - 1) / 2.0) * SPACING))
-                .add(this.side().scale((row - (rows - 1) / 2.0) * SPACING));
+                .add(0.0, this.style.itemY, 0.0)
+                .add(this.right().scale((col - (COLUMNS - 1) / 2.0) * sp))
+                .add(this.side().scale((row - (rows - 1) / 2.0) * sp));
     }
 
+    /** Topo do bloco (usado pelo Cinematic para alcance e pivo da camera). */
     @Override
     public Vec3 center() {
-        return this.anchor;
+        return this.anchor.add(0.0, 1.0, 0.0);
     }
 
     @Override
@@ -98,8 +142,8 @@ public final class ContainerStation extends AddonMenuStation<AbstractContainerMe
 
     @Override
     public CameraRig.Pose lean() {
-        Vec3 eye = this.anchor.add(this.side().scale(1.05)).add(0.0, 1.25, 0.0);
-        Vec3 look = this.anchor.add(0.0, 0.25, 0.0).subtract(eye);
+        Vec3 eye = this.anchor.add(this.side().scale(this.style.eyeSide)).add(0.0, this.style.eyeUp, 0.0);
+        Vec3 look = this.anchor.add(0.0, this.style.itemY, 0.0).subtract(eye);
         float yaw = (float) Math.toDegrees(Math.atan2(-look.x, look.z));
         float pitch = (float) (-Math.toDegrees(Math.atan2(look.y, Math.hypot(look.x, look.z))));
         return new CameraRig.Pose(eye, yaw, pitch, 0.0f);
@@ -107,12 +151,12 @@ public final class ContainerStation extends AddonMenuStation<AbstractContainerMe
 
     @Override
     public double leanFov() {
-        return 68.0;
+        return 70.0;
     }
 
     @Override
     public float bodyPitch() {
-        return 40.0f;
+        return 55.0f;
     }
 
     @Override
@@ -120,7 +164,7 @@ public final class ContainerStation extends AddonMenuStation<AbstractContainerMe
         return this.anchor
                 .add(this.right().scale(right ? 0.45 : -0.45))
                 .add(this.side().scale(0.5))
-                .add(0.0, 0.15, 0.0);
+                .add(0.0, 1.15, 0.0);
     }
 
     // ---------- cursor e maos ----------
@@ -143,7 +187,7 @@ public final class ContainerStation extends AddonMenuStation<AbstractContainerMe
             }
             Vec3 p = this.slotPoint(i, total);
             double[] at = Picking.toGui(p);
-            double[] edge = Picking.toGui(p.add(0.0, 0.07, 0.0));
+            double[] edge = Picking.toGui(p.add(0.0, this.style.spacing * 0.5, 0.0));
             if (at == null || edge == null) {
                 continue;
             }
@@ -202,7 +246,8 @@ public final class ContainerStation extends AddonMenuStation<AbstractContainerMe
         }
         Vec3 cam = camera.position();
         int total = containerSlots();
-        Vec3 origin = this.anchor.add(0.0, 0.05, 0.0);
+        Vec3 origin = this.anchor.add(0.0, this.style.itemY - 0.02, 0.0);
+        double sp = this.style.spacing;
         for (int i = 0; i < total; i++) {
             ItemStack stack = this.slot(i);
             if (stack.isEmpty()) {
@@ -211,9 +256,9 @@ public final class ContainerStation extends AddonMenuStation<AbstractContainerMe
             double k = Anim.outCubic(Anim.window(Scene.time, 0.15 + i * 0.012, 0.6 + i * 0.012));
             boolean hover = i == this.hoverSlot;
             Vec3 at = Anim.lerp(origin, this.slotPoint(i, total), k)
-                    .add(0.0, hover ? 0.05 : 0.012 * Math.sin(Scene.clock() * 2.0 + i), 0.0);
-            float base = ItemPlacer.isBlock(stack) ? 0.09f : 0.14f;
-            float size = (float) (base * (0.4 + 0.6 * k) * (hover ? 1.25 : 1.0));
+                    .add(0.0, hover ? this.style.hoverLift : 0.0, 0.0);
+            double base = ItemPlacer.isBlock(stack) ? sp * 0.62 : sp * 0.95;
+            float size = (float) (base * (0.4 + 0.6 * k) * (hover ? this.style.hoverScale : 1.0));
             ItemPlacer.drawOriented(pose, buffers, cam, stack, at,
                     ItemPlacer.lying(ItemPlacer.awayYaw(this.side), 0.0f), size, light);
         }
@@ -223,7 +268,7 @@ public final class ContainerStation extends AddonMenuStation<AbstractContainerMe
     public void renderWorld(PoseStack pose, SceneBuffers buffers, Vec3 camera, int light) {
         if (this.hoverSlot >= 0 && this.aim != null) {
             float p = (float) (0.18 + 0.06 * Math.sin(Scene.clock() * 5.0));
-            EnchantFx.disc(pose, buffers, camera, this.aim.add(0.0, -0.01, 0.0), 0.075, 0.0,
+            EnchantFx.disc(pose, buffers, camera, this.aim.add(0.0, -0.01, 0.0), this.style.spacing * 0.6, 0.0,
                     EnchantFx.GLOW, p, p * 0.8f, p * 0.55f);
         }
     }
