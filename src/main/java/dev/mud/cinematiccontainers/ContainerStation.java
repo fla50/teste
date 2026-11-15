@@ -36,15 +36,15 @@ public final class ContainerStation extends AddonMenuStation<AbstractContainerMe
 
     /**
      * Cada tipo de container mostra os itens num lugar diferente:
-     * bau/Ender: DENTRO do bau, no fundo (camera bem por cima, olhando pra baixo);
+     * bau/Ender: sobre o "fundo" do bau (a face de cima da caixa, a ~0,63 de altura), camera por cima;
      * barril: logo acima da boca do barril;
-     * shulker: acima da tampa dela (a tampa sobe e gira, entao nao da pra ficar dentro).
+     * shulker: no VAO entre a base e a tampa levantada, com os itens em pe e camera baixa.
      */
     private enum Style {
-        //            itemY  spacing eyeSide eyeUp  hoverLift hoverScale
-        CHEST(0.14, 0.095, 0.55, 2.00, 0.12, 1.9),
-        BARREL(1.15, 0.100, 0.75, 2.20, 0.06, 1.5),
-        SHULKER(1.75, 0.100, 0.75, 2.70, 0.06, 1.5);
+        //            itemY  spacing eyeSide eyeUp  hoverLift hoverScale tilt rowRise
+        CHEST(0.70, 0.092, 0.75, 1.75, 0.12, 1.9, 0.0f, 0.0),
+        BARREL(1.15, 0.100, 0.75, 2.20, 0.06, 1.5, 0.0f, 0.0),
+        SHULKER(0.57, 0.100, 1.15, 0.72, 0.03, 1.3, 90.0f, 0.03);
 
         final double itemY;
         final double spacing;
@@ -52,14 +52,19 @@ public final class ContainerStation extends AddonMenuStation<AbstractContainerMe
         final double eyeUp;
         final double hoverLift;
         final double hoverScale;
+        final float tilt;
+        final double rowRise;
 
-        Style(double itemY, double spacing, double eyeSide, double eyeUp, double hoverLift, double hoverScale) {
+        Style(double itemY, double spacing, double eyeSide, double eyeUp, double hoverLift,
+              double hoverScale, float tilt, double rowRise) {
             this.itemY = itemY;
             this.spacing = spacing;
             this.eyeSide = eyeSide;
             this.eyeUp = eyeUp;
             this.hoverLift = hoverLift;
             this.hoverScale = hoverScale;
+            this.tilt = tilt;
+            this.rowRise = rowRise;
         }
 
         static Style of(BlockState state) {
@@ -113,7 +118,8 @@ public final class ContainerStation extends AddonMenuStation<AbstractContainerMe
         return this.anchor
                 .add(0.0, this.style.itemY, 0.0)
                 .add(this.right().scale((col - (COLUMNS - 1) / 2.0) * sp))
-                .add(this.side().scale((row - (rows - 1) / 2.0) * sp));
+                .add(this.side().scale((row - (rows - 1) / 2.0) * sp))
+                .add(0.0, (rows - 1 - row) * this.style.rowRise, 0.0);
     }
 
     /** Topo do bloco (usado pelo Cinematic para alcance e pivo da camera). */
@@ -259,8 +265,10 @@ public final class ContainerStation extends AddonMenuStation<AbstractContainerMe
                     .add(0.0, hover ? this.style.hoverLift : 0.0, 0.0);
             double base = ItemPlacer.isBlock(stack) ? sp * 0.62 : sp * 0.95;
             float size = (float) (base * (0.4 + 0.6 * k) * (hover ? this.style.hoverScale : 1.0));
-            ItemPlacer.drawOriented(pose, buffers, cam, stack, at,
-                    ItemPlacer.lying(ItemPlacer.awayYaw(this.side), 0.0f), size, light);
+            org.joml.Quaternionf rotation = this.style.tilt > 0.0f
+                    ? ItemPlacer.lying(-this.side.toYRot(), this.style.tilt)
+                    : ItemPlacer.lying(ItemPlacer.awayYaw(this.side), 0.0f);
+            ItemPlacer.drawOriented(pose, buffers, cam, stack, at, rotation, size, light);
         }
     }
 
