@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "cinematic_containers",
+  "version": "${version}",
+  "name": "Cinematic Containers",
+  "description": "Addon do Cinematic Interactions: bau, barril, shulker e bau do Ender abrem em primeira pessoa, com os itens flutuando sobre o container.",
+  "authors": ["Mud"],
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": {
+    "main": ["dev.mud.cinematiccontainers.CinematicContainers"],
+    "client": ["dev.mud.cinematiccontainers.CinematicContainersClient"]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.5",
+    "minecraft": "26.3",
+    "java": ">=25",
+    "fabric-api": "*",
+    "cinematic": ">=0.18.30"
+  }
+}
