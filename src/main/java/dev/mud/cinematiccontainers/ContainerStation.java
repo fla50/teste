@@ -43,7 +43,7 @@ public final class ContainerStation extends AddonMenuStation<AbstractContainerMe
     private enum Style {
         //            itemY  spacing eyeSide eyeUp  hoverLift hoverScale tilt rowRise
         CHEST(0.70, 0.092, 0.75, 1.75, 0.12, 1.9, 0.0f, 0.0),
-        BARREL(1.15, 0.100, 0.75, 2.20, 0.06, 1.5, 0.0f, 0.0),
+        BARREL(1.06, 0.095, 0.75, 1.75, 0.12, 1.9, 0.0f, 0.0),
         SHULKER(0.57, 0.100, 1.15, 0.72, 0.03, 1.3, 90.0f, 0.03);
 
         final double itemY;
@@ -120,6 +120,28 @@ public final class ContainerStation extends AddonMenuStation<AbstractContainerMe
                 .add(this.right().scale((col - (COLUMNS - 1) / 2.0) * sp))
                 .add(this.side().scale((row - (rows - 1) / 2.0) * sp))
                 .add(0.0, (rows - 1 - row) * this.style.rowRise, 0.0);
+    }
+
+    private double workY() {
+        return Math.min(this.style.itemY, 0.9);
+    }
+
+    /**
+     * O Cinematic confere se a camera enxerga estes pontos antes de aceitar a cena. Eles ficam
+     * DENTRO do bloco clicado (o corpo do proprio bloco e ignorado nessa conferencia); fora dele,
+     * a shulker (com a tampa levantada) e a camera baixa faziam a cena ser recusada.
+     */
+    @Override
+    public Vec3 workPoint() {
+        return new Vec3(this.pos.getX() + 0.5, this.pos.getY() + workY(), this.pos.getZ() + 0.5);
+    }
+
+    @Override
+    public List<Vec3> workSamples() {
+        Vec3 w = this.workPoint();
+        Vec3 a = this.right().scale(0.25);
+        Vec3 b = this.side().scale(0.25);
+        return List.of(w, w.add(a), w.subtract(a), w.add(b), w.subtract(b));
     }
 
     /** Topo do bloco (usado pelo Cinematic para alcance e pivo da camera). */
